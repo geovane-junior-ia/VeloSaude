@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>VeloSaúde v5 · Real-Time Tracker</title>
+    
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    
+    <!-- Chart.js para gráficos -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- TOGeoJSON para GPX -->
+    <script src="https://cdn.jsdelivr.net/npm/@tmcw/togeojson@5.8.0/dist/togeojson.umd.min.js"></script>
+    
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --secondary: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --dark: #1e293b;
+            --light: #f8fafc;
+            --card-bg: rgba(255, 255, 255, 0.95);
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: var(--dark);
+            color: var(--light);
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            position: fixed;
+            top: 0;            left: 0;
+            right: 0;
+            background: linear-gradient(135deg, var(--primary), #1d4ed8);
+            padding: 12px 16px;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+
+        .header h1 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: var(--secondary);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 2px solid white;            color: white;
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Map Container */
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+
+        /* Live Data Panel */
+        .live-panel {
+            position: fixed;
+            top: 70px;
+            left: 16px;
+            background: var(--card-bg);
+            color: var(--dark);
+            padding: 16px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 999;
+            min-width: 280px;
+            max-width: calc(100vw - 32px);
+        }
+
+        .live-panel h3 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #9ca3af;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator.connected {            background: var(--secondary);
+        }
+
+        .status-indicator.recording {
+            background: var(--danger);
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .metric-card {
+            background: rgba(37, 99, 235, 0.1);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .metric-label {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-top: 4px;
+        }
+
+        .metric-card.heart-rate .metric-value {
+            color: var(--danger);
+        }
+
+        .metric-card.speed .metric-value {
+            color: var(--secondary);
+        }
+
+        /* Heart Rate Zone Indicator */
+        .hr-zone {
+            margin-top: 12px;
+            padding: 8px;            background: rgba(0,0,0,0.05);
+            border-radius: 6px;
+            text-align: center;
+        }
+
+        .hr-zone-bar {
+            height: 8px;
+            background: linear-gradient(90deg, 
+                #22c55e 0%, 
+                #84cc16 20%, 
+                #eab308 40%, 
+                #f97316 60%, 
+                #ef4444 80%, 
+                #dc2626 100%);
+            border-radius: 4px;
+            position: relative;
+            margin-top: 6px;
+        }
+
+        .hr-zone-indicator {
+            position: absolute;
+            width: 3px;
+            height: 12px;
+            background: var(--dark);
+            top: -2px;
+            transition: left 0.3s;
+        }
+
+        /* Control Panel */
+        .control-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--card-bg);
+            color: var(--dark);
+            padding: 16px 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            z-index: 999;
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .control-panel button {
+            min-width: 120px;
+        }
+
+        /* GPX Import Modal */        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .modal.active {
+            display: flex;
+        }
+
+        .modal-content {
+            background: white;
+            color: var(--dark);
+            padding: 24px;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-header h2 {
+            font-size: 1.3rem;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #64748b;
+        }
+
+        .file-input-wrapper {
+            border: 2px dashed #cbd5e1;            padding: 40px 20px;
+            text-align: center;
+            border-radius: 12px;
+            margin: 20px 0;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .file-input-wrapper:hover {
+            border-color: var(--primary);
+            background: rgba(37, 99, 235, 0.05);
+        }
+
+        .file-input-wrapper input {
+            display: none;
+        }
+
+        /* Sessions List */
+        .sessions-list {
+            margin-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .session-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: #f1f5f9;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .session-item:hover {
+            background: #e2e8f0;
+        }
+
+        .session-info h4 {
+            font-size: 0.9rem;
+            margin-bottom: 4px;
+        }
+
+        .session-info p {
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+        .session-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .session-actions button {
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+
+        /* Chart Container */
+        .chart-container {
+            margin-top: 20px;
+            background: #f8fafc;
+            padding: 16px;
+            border-radius: 12px;
+        }
+
+        /* Toast Notifications */
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--dark);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            z-index: 3000;
+            opacity: 0;
+            transition: all 0.3s;
+        }
+
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .toast.success {
+            background: var(--secondary);
+        }
+
+        .toast.error {
+            background: var(--danger);
+        }
+
+        /* Offline Indicator */
+        .offline-indicator {
+            position: fixed;
+            top: 70px;            right: 16px;
+            background: var(--warning);
+            color: var(--dark);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            z-index: 998;
+            display: none;
+        }
+
+        .offline-indicator.show {
+            display: block;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .live-panel {
+                top: auto;
+                bottom: 100px;
+                left: 16px;
+                right: 16px;
+                min-width: auto;
+            }
+
+            .control-panel {
+                width: calc(100% - 32px);
+                justify-content: center;
+                flex-wrap: wrap;
+            }
+
+            .control-panel button {
+                min-width: 100px;
+                font-size: 0.85rem;
+                padding: 10px 14px;
+            }
+
+            .header h1 {
+                font-size: 1.1rem;
+            }
+
+            .btn {
+                padding: 6px 12px;
+                font-size: 0.85rem;
+            }
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 20px;            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Bluetooth Device List */
+        .device-list {
+            margin: 16px 0;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .device-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: #f1f5f9;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+        }
+
+        .device-item:hover {
+            background: #e2e8f0;
+        }
+
+        .device-item.selected {
+            background: rgba(37, 99, 235, 0.2);
+            border: 2px solid var(--primary);
+        }
+
+        /* Map Controls */
+        .leaflet-control-layers {
+            border-radius: 8px !important;
+            overflow: hidden !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <h1>            🚴 VeloSaúde <span style="font-size: 0.8rem; opacity: 0.8;">v5</span>
+        </h1>
+        <div class="header-actions">
+            <button class="btn btn-outline" onclick="openSessionsModal()">
+                📁 Sessões
+            </button>
+            <button class="btn btn-outline" onclick="openGPXModal()">
+                📤 Importar GPX
+            </button>
+        </div>
+    </header>
+
+    <!-- Offline Indicator -->
+    <div class="offline-indicator" id="offlineIndicator">
+        📡 Modo Offline - Mapa limitado
+    </div>
+
+    <!-- Map -->
+    <div id="map"></div>
+
+    <!-- Live Data Panel -->
+    <div class="live-panel">
+        <h3>
+            <span class="status-indicator" id="statusIndicator"></span>
+            <span id="statusText">Aguardando...</span>
+        </h3>
+        
+        <div class="metrics-grid">
+            <div class="metric-card heart-rate">
+                <div class="metric-value" id="heartRate">--</div>
+                <div class="metric-label">❤️ BPM</div>
+            </div>
+            <div class="metric-card speed">
+                <div class="metric-value" id="speed">--</div>
+                <div class="metric-label">🚴 km/h</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="distance">0.00</div>
+                <div class="metric-label">📍 km</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="time">00:00</div>
+                <div class="metric-label">⏱ Tempo</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="calories">0</div>
+                <div class="metric-label">🔥 kcal</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-value" id="avgSpeed">--</div>                <div class="metric-label">📊 Média</div>
+            </div>
+        </div>
+
+        <div class="hr-zone">
+            <div id="hrZoneText">Zona: --</div>
+            <div class="hr-zone-bar">
+                <div class="hr-zone-indicator" id="hrZoneIndicator" style="left: 0%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Control Panel -->
+    <div class="control-panel">
+        <button class="btn btn-primary" id="connectBtn" onclick="connectHeartRate()">
+            ❤️ Conectar H303
+        </button>
+        <button class="btn btn-primary" id="gpsBtn" onclick="toggleGPS()">
+            📍 Iniciar GPS
+        </button>
+        <button class="btn btn-danger" id="recordBtn" onclick="toggleRecording()" disabled>
+            ⏺ Gravar
+        </button>
+        <button class="btn btn-outline" id="exportBtn" onclick="exportGPX()" disabled>
+                📥 Exportar
+        </button>
+    </div>
+
+    <!-- GPX Import Modal -->
+    <div class="modal" id="gpxModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📤 Importar GPX</h2>
+                <button class="close-btn" onclick="closeModal('gpxModal')">&times;</button>
+            </div>
+            <p>Importe um arquivo GPX do Mi Fitness ou outro dispositivo</p>
+            <div class="file-input-wrapper" onclick="document.getElementById('gpxInput').click()">
+                <input type="file" id="gpxInput" accept=".gpx" onchange="handleGPXImport(event)">
+                <div style="font-size: 3rem;">📁</div>
+                <p>Clique para selecionar arquivo GPX</p>
+                <p style="font-size: 0.85rem; color: #64748b;">ou arraste e solte aqui</p>
+            </div>
+            <div id="gpxPreview" class="chart-container" style="display: none;">
+                <h4>Pré-visualização</h4>
+                <canvas id="gpxChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sessions Modal -->    <div class="modal" id="sessionsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📁 Sessões Salvas</h2>
+                <button class="close-btn" onclick="closeModal('sessionsModal')">&times;</button>
+            </div>
+            <div class="sessions-list" id="sessionsList">
+                <p style="text-align: center; color: #64748b;">Nenhuma sessão salva</p>
+            </div>
+            <button class="btn btn-danger" onclick="clearAllSessions()" style="width: 100%; margin-top: 16px;">
+                🗑 Limpar Todas
+            </button>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div class="toast" id="toast"></div>
+
+    <script>
+        // ==================== GLOBAL STATE ====================
+        let map;
+        let routeLayer;
+        let markerLayer;
+        let currentTrack = [];
+        let isRecording = false;
+        let isGPSActive = false;
+        let watchId = null;
+        let heartRateDevice = null;
+        let heartRateCharacteristic = null;
+        let currentHeartRate = 0;
+        let startTime = null;
+        let elapsedTime = 0;
+        let timerInterval = null;
+        let sessionData = {
+            distance: 0,
+            totalTime: 0,
+            avgSpeed: 0,
+            maxSpeed: 0,
+            avgHeartRate: 0,
+            maxHeartRate: 0,
+            calories: 0,
+            heartRates: [],
+            speeds: [],
+            timestamps: []
+        };
+
+        // ==================== MAP INITIALIZATION ====================
+        function initMap() {
+            // Default center (Arapiraca, AL)
+            const defaultCenter = [-9.7847, -36.6583];            
+            map = L.map('map', {
+                zoomControl: false,
+                attributionControl: true
+            }).setView(defaultCenter, 13);
+
+            // Add zoom control to bottom right
+            L.control.zoom({
+                position: 'bottomright'
+            }).addTo(map);
+
+            // Tile layers
+            const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            });
+
+            const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: '© ESRI'
+            });
+
+            const terrainLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenTopoMap',
+                maxZoom: 17
+            });
+
+            osmLayer.addTo(map);
+
+            // Layer control
+            L.control.layers({
+                ' Ruas': osmLayer,
+                '🛰 Satélite': satelliteLayer,
+                '🏔 Terreno': terrainLayer
+            }).addTo(map);
+
+            // Route layer
+            routeLayer = L.layerGroup().addTo(map);
+            markerLayer = L.layerGroup().addTo(map);
+
+            // Check offline status
+            checkOfflineStatus();
+            window.addEventListener('online', checkOfflineStatus);
+            window.addEventListener('offline', checkOfflineStatus);
+
+            // Load saved sessions
+            loadSessionsList();
+        }
+
+        // ==================== OFFLINE STATUS ====================
+        function checkOfflineStatus() {            const indicator = document.getElementById('offlineIndicator');
+            if (!navigator.onLine) {
+                indicator.classList.add('show');
+                showToast('📡 Modo Offline ativado', 'warning');
+            } else {
+                indicator.classList.remove('show');
+            }
+        }
+
+        // ==================== HEART RATE CONNECTION ====================
+        async function connectHeartRate() {
+        
